@@ -1,0 +1,133 @@
+    1  cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
+overlay
+br_netfilter
+EOF
+
+    2  sudo modprobe overlay
+    3  sudo modprobe br_netfilter
+    4  cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
+net.bridge.bridge-nf-call-iptables  = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+net.ipv4.ip_forward                 = 1
+EOF
+
+    5  sudo sysctl --system
+    6  sudo swapoff -a
+    7  (crontab -l 2>/dev/null; echo "@reboot /sbin/swapoff -a") | crontab - || true
+    8  cat <<EOF | sudo tee /etc/modules-load.d/crio.conf
+overlay
+br_netfilter
+EOF
+
+    9  cat <<EOF | sudo tee /etc/sysctl.d/99-kubernetes-cri.conf
+net.bridge.bridge-nf-call-iptables  = 1
+net.ipv4.ip_forward                 = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+EOF
+
+   10  sudo modprobe overlay
+   11  sudo modprobe br_netfilter
+   12  cat <<EOF | sudo tee /etc/sysctl.d/99-kubernetes-cri.conf
+net.bridge.bridge-nf-call-iptables  = 1
+net.ipv4.ip_forward                 = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+EOF
+
+   13  sudo sysctl --system
+   14  OS="xUbuntu_20.04"
+   15  VERSION="1.23"
+   16  cat <<EOF | sudo tee /etc/apt/sources.list.d/devel:kubic:libcontainers:stable.list
+deb https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/$OS/ /
+EOF
+
+   17  cat <<EOF | sudo tee /etc/apt/sources.list.d/devel:kubic:libcontainers:stable:cri-o:$VERSION.list
+deb http://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable:/cri-o:/$VERSION/$OS/ /
+EOF
+
+   18  curl -L https://download.opensuse.org/repositories/devel:kubic:libcontainers:stable:cri-o:$VERSION/$OS/Release.key | sudo apt-key --keyring /etc/apt/trusted.gpg.d/libcontainers.gpg add -
+   19  curl -L https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/$OS/Release.key | sudo apt-key --keyring /etc/apt/trusted.gpg.d/libcontainers.gpg add -
+   20  sudo apt-get update
+   21  sudo apt-get install cri-o cri-o-runc cri-tools -y
+   22  sudo systemctl daemon-reload
+   23  sudo systemctl enable crio --now
+   24  sudo apt-get update
+   25  sudo apt-get install -y apt-transport-https ca-certificates curl gpg
+   26  curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.28/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+   27  echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.28/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list
+   28  sudo apt-get update -y
+   29  sudo apt update
+   30  apt-cache madison kubeadm | tac
+   31  sudo apt-get install -y kubelet kubeadm kubectl
+   32  sudo apt-mark hold kubelet kubeadm kubectl
+   33  sudo apt-get install -y jq
+   34  local_ip="$(ip --json a s | jq -r '.[] | if .ifname == "eth1" then .addr_info[] | if .family == "inet" then .local else empty end else empty end')"
+   35  cat > /etc/default/kubelet << EOF
+KUBELET_EXTRA_ARGS=--node-ip=$local_ip
+EOF
+
+   36  sdo su
+   37  sudo su
+   38  IPADDR=$(curl ifconfig.me && echo "")
+   39  NODENAME=$(hostname -s)
+   40  POD_CIDR="192.168.0.0/16"
+   41  sudo kubeadm init --control-plane-endpoint=$IPADDR  --apiserver-cert-extra-sans=$IPADDR  --pod-network-cidr=$POD_CIDR --node-name $NODENAME --ignore-preflight-errors Swap
+   42  mkdir -p $HOME/.kube
+   43  sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+   44  sudo chown $(id -u):$(id -g) $HOME/.kube/config
+   45  kubectl get po -n kube-system
+   46  kubectl get --raw='/readyz?verbose'
+   47  kubectl cluster-info 
+   48  kubectl taint nodes --all node-role.kubernetes.io/control-plane-
+   49  kubectl get po -n kube-system
+   50  kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
+   51  kubectl get po -n kube-system
+   52  watch kubectl get po -n kube-system
+   53  kubectl get po -n kube-system
+   54  kubeadm token create --print-join-command
+   55  kubectl get po -n kube-system
+   56  kubectl apply -f https://raw.githubusercontent.com/techiescamp/kubeadm-scripts/main/manifests/metrics-server.yaml
+   57  kubectl get po -n kube-system
+   58  kubectl top nodes
+   59  kubectl top pod -n kube-system
+   60  cat <<EOF | kubectl apply -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+spec:
+  selector:
+    matchLabels:
+      app: nginx
+  replicas: 2 
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:latest
+        ports:
+        - containerPort: 80      
+EOF
+
+   61  kubectl top pod -n kube-system
+   62  kubectl get po -n kube-system
+   63  kubectl get po -A
+   64  cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-service
+spec:
+  selector: 
+    app: nginx
+  type: NodePort  
+  ports:
+    - port: 80
+      targetPort: 80
+      nodePort: 32000
+EOF
+
+   65  cat ~/.kube/config 
+   66  history
